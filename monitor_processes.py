@@ -4,8 +4,8 @@
 # Notes :
 #   Only works on linux
 #
-#
-#
+# To Do :
+#   When I'm clever, I'll use inheritance with Process and CpuProcess / GpuProcess
 #
 #
 """This code does stuff
@@ -16,7 +16,28 @@ import time
 import argparse
 import subprocess
 
+
 class Process:
+    """Generic Process that is parent class of CpuProcess and GpuProcess"""
+    def __init__(self, pid : int, percentcpu : float, percentmem : float,
+                 localtime : str, timesecs : int, command : str):
+        """Monitor user processes by using Python
+
+        Args:
+
+        Returns:
+
+        Raises:
+        """
+        self.pid=pid
+        self.percentcpu=percentcpu
+        self.percentmem=percentmem
+        self.localtime=localtime
+        self.timesecs=timesecs
+        self.command=command
+
+
+class CpuProcess(Process):
     """Process from a user"""
     def __init__(self, pid : int, user : str, virt : str, res : str,
                  shr : str, state : str, percentcpu : float, percentmem : float,
@@ -29,48 +50,48 @@ class Process:
 
         Raises:
         """
-        def parse_mem(memstr : str) -> float :
-            """Parse memory string from top, handle case when in different units
-
-            Args:
-                memstr : (str) string of memory taken from top
-
-            Returns:
-                float in GiB
-
-            Raises:
-            """
-            try :
-                if 't' in memstr.lower():
-                    mem = memstr.lower().split('t')[0]
-                    mem = float(mem) * 1024
-                if 'g' in memstr.lower():
-                    mem = memstr.lower().split('g')[0]
-                    mem = float(mem)
-                elif 'm' in memstr.lower():
-                    mem = memstr.lower().split('m')[0]
-                    mem = float(mem) / 1024
-                elif 'k' in memstr.lower():
-                    mem = memstr.lower().split('k')[0]
-                    mem = float(mem) / (1024**2)
-                else :
-                    mem = float(memstr) / (1024**2)
-                return mem
-            except AttributeError :
-                if type(memstr) == float:
-                    return memstr
-        self.pid=pid
+        super().__init__(pid=pid, percentcpu=percentcpu, percentmem=percentmem,
+                         localtime=localtime, timesecs=timesecs, command=command)
         self.user=user
-        # In kilobytes by default - keep everything in GiB
-        self.virt = parse_mem(virt)
-        self.res  = parse_mem(res)
-        self.shr  = parse_mem(shr)
+        self.virt = -1
+        self.res  = -1
+        self.shr  = -1
+        self.parse_mem(virt, 'virt')
+        self.parse_mem(res, 'res')
+        self.parse_mem(shr, 'shr')
         self.state=state
-        self.percentcpu=percentcpu
-        self.percentmem=percentmem
-        self.localtime=localtime
-        self.timesecs=timesecs
-        self.command=command
+
+
+    def parse_mem(self, memstr : str, attr : str) :
+        """Parse memory string from top, handle different units. Set attribute 'attr'
+
+        Args:
+            memstr : (str) string of memory taken from top
+
+        Returns:
+            N/A : sets self.attr = value
+
+        Raises:
+        """
+        try :
+            if 't' in memstr.lower():
+                mem = memstr.lower().split('t')[0]
+                mem = float(mem) * 1024
+            if 'g' in memstr.lower():
+                mem = memstr.lower().split('g')[0]
+                mem = float(mem)
+            elif 'm' in memstr.lower():
+                mem = memstr.lower().split('m')[0]
+                mem = float(mem) / 1024
+            elif 'k' in memstr.lower():
+                mem = memstr.lower().split('k')[0]
+                mem = float(mem) / (1024**2)
+            else :
+                mem = float(memstr) / (1024**2)
+        except AttributeError :
+            if type(memstr) == float:
+                mem = memstr
+        self.__setattr__(attr, mem)
 
 
     def write(self, fout) -> None :
@@ -90,6 +111,20 @@ class Process:
                                         self.shr, self.percentcpu, self.percentmem,
                                         self.command))
         fout.flush()
+
+
+class GpuProcess(Process):
+    """GPU Process"""
+    def __init__(self, pid : int, gpu : int, sm : str, mem, command : str,
+                 localtime : str, timesecs : int):
+        """Monitor gpu processes
+
+        Args:
+
+        Returns:
+
+        Raises:
+        """
 
 
 def total_process(procL : list) -> Process :
@@ -119,7 +154,7 @@ def total_process(procL : list) -> Process :
         shr  += proc.shr
         percentcpu += proc.percentcpu
         percentmem += proc.percentmem
-    totproc = Process(pid = -1, user = proc.user, virt = virt, res = res,
+    totproc = CpuProcess(pid = -1, user = proc.user, virt = virt, res = res,
                       shr = shr, state = "N/A", percentcpu = percentcpu,
                       percentmem = percentmem, localtime = proc.localtime,
                       timesecs = proc.timesecs, command = "TOTALPROC")
@@ -140,16 +175,17 @@ def main():
                         help='Username')
     parser.add_argument('--delay', metavar='delay', type=int,
                         help='Delay in (integer) seconds between query')
-    parser.add_argument('--outstem', metavar='output_path_stem', type=int,
+    parser.add_argument('--outstem', metavar='output_path_stem', type=str,
                         help='Output path stem')
     args = parser.parse_args()
     user = args.user
     delay = args.delay
     start = time.time()
     startlocal = time.localtime()
-    procL = []
-    print("{}-{}-{}T{}:{}:{}".format(startlocal.tm_year, startlocal.tm_mon,
-          startlocal.tm_mday,startlocal.tm_hour,startlocal.tm_min,startlocal.tm_sec))
+    cpuprocL = []
+    print("{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(startlocal.tm_year,
+          startlocal.tm_mon, startlocal.tm_mday, startlocal.tm_hour,
+          startlocal.tm_min, startlocal.tm_sec))
     totfile = open("{}-total.txt".format(args.outstem), "w+")
     totfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
                   "{}\n".format("Date", "time", "pid", "user", "virt", "res", "shr",
@@ -166,7 +202,7 @@ def main():
         top = subprocess.getoutput(string)
         print(top)
         topL = top.split('\n')
-        procsattimeL = []       # procs ONLY at this current time
+        cpuprocsattimeL = []       # procs ONLY at this current time
         # Get time
         localtime = time.localtime()
         localtime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(localtime.tm_year,
@@ -175,19 +211,19 @@ def main():
         timesecs = time.time() - start
         for line in topL:
             line = line.split()
-            proc = Process(pid=int(line[0]), user=line[1], virt=line[4],
+            cpuproc = CpuProcess(pid=int(line[0]), user=line[1], virt=line[4],
                               res=line[5], shr=line[6], state=line[7],
                               percentcpu=float(line[8]), percentmem=float(line[9]),
                               localtime=localtime, timesecs=timesecs,
                               command = line[-1])
-            proc.write(allfile)
-            procL.append(proc)
-            procsattimeL.append(proc)
-        totalproc = total_process(procsattimeL)
-        totalproc.write(totfile)
+            cpuproc.write(allfile)
+            cpuprocL.append(cpuproc)
+            cpuprocsattimeL.append(cpuproc)
+        totalcpuproc = total_process(cpuprocsattimeL)
+        totalcpuproc.write(totfile)
 
         # Assume monitor_process is last process standing
-        if len(procsattimeL) == 1:
+        if len(cpuprocsattimeL) == 1:
             break
 
         time.sleep(delay)
