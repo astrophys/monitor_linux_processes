@@ -84,11 +84,12 @@ class Process:
 
         Raises:
         """
-        fout.write("{:<18} : {:<8} : {:<9} {:<5} {:<5.6f} {:<5.6f} {:<5.6f} {:<3.2f} "
-                   "{:<3.2f} {}\n".format(self.localtime, self.timesecs, self.pid,
-                                        self.user, self.virt, self.res, self.shr,
-                                        self.percentcpu, self.percentmem,
+        fout.write("{:<18} : {:<8.1f} : {:<9} {:<5} {:<13.6f} {:<13.6f} {:<13.6f} "
+                   "{:<6.2f} {:<6.2f} {}\n".format(self.localtime, self.timesecs,
+                                        self.pid, self.user, self.virt, self.res,
+                                        self.shr, self.percentcpu, self.percentmem,
                                         self.command))
+        fout.flush()
 
 
 def total_process(procL : list) -> Process :
@@ -150,11 +151,11 @@ def main():
     print("{}-{}-{}T{}:{}:{}".format(startlocal.tm_year, startlocal.tm_mon,
           startlocal.tm_mday,startlocal.tm_hour,startlocal.tm_min,startlocal.tm_sec))
     totfile = open("{}-total.txt".format(args.outstem), "w+")
-    totfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<5} {:<5} {:<3} {:<3} "
+    totfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
                   "{}\n".format("Date", "time", "pid", "user", "virt", "res", "shr",
                               "%cpu", "%mem", "command"))
     allfile = open("{}-all.txt".format(args.outstem), "w+")
-    allfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<5} {:<5} {:<3} {:<3} "
+    allfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
                   "{}\n".format("Date", "time", "pid", "user", "virt", "res", "shr",
                               "%cpu", "%mem", "command"))
 
@@ -168,7 +169,7 @@ def main():
         procsattimeL = []       # procs ONLY at this current time
         # Get time
         localtime = time.localtime()
-        localtime = "{}-{}-{}T{}:{}:{}".format(localtime.tm_year,
+        localtime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(localtime.tm_year,
                     localtime.tm_mon, localtime.tm_mday, localtime.tm_hour,
                     localtime.tm_min, localtime.tm_sec)
         timesecs = time.time() - start
@@ -179,6 +180,7 @@ def main():
                               percentcpu=float(line[8]), percentmem=float(line[9]),
                               localtime=localtime, timesecs=timesecs,
                               command = line[-1])
+            proc.write(allfile)
             procL.append(proc)
             procsattimeL.append(proc)
         totalproc = total_process(procsattimeL)
