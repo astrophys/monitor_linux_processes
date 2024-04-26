@@ -1,3 +1,4 @@
+#!/bin/env python3
 # Author : Ali Snedden
 # Date   : 04/23/24
 # License: MIT
@@ -228,7 +229,17 @@ def main():
                         help='Delay in (integer) seconds between query')
     parser.add_argument('--outstem', metavar='output_path_stem', type=str,
                         help='Output path stem')
+    parser.add_argument('--verbose', metavar='true_or_false', type=str, nargs='?',
+                        help='Print out each top / nvidia-smi to stdout')
     args = parser.parse_args()
+    if args.verbose == None :
+        verbose = False
+    elif args.verbose.lower() == 'false':
+        verbose = False
+    elif args.verbose.lower() == 'true':
+        verbose = True
+    else:
+        raise ValueError("ERROR!!! Invalid verbose option")
     user = args.user
     delay = args.delay
     start = time.time()
@@ -265,7 +276,8 @@ def main():
         # https://stackoverflow.com/a/28756533/4021436
         string="top -b -u {} -n 1 | grep {}".format(user,user)
         top = subprocess.getoutput(string)
-        print(top)
+        if verbose == True:
+            print(top)
         topL = top.split('\n')
         cpuprocsattimeL = []       # procs ONLY at this current time
         timesecs = time.time() - start
@@ -289,7 +301,8 @@ def main():
         ###### GPU ######
         string="nvidia-smi pmon -c 1"
         nvsmi = subprocess.getoutput(string)
-        print(nvsmi)
+        if verbose == True:
+            print(nvsmi)
         nvsmiL = nvsmi.split('\n')
         gpuprocsattimeL = []       # procs ONLY at this current time
         timesecs = time.time() - start
@@ -307,8 +320,9 @@ def main():
             gpuproc.write(allgpufile)
             gpuprocL.append(gpuproc)
             gpuprocsattimeL.append(gpuproc)
-        totgpuproc = total_gpu_process(gpuprocsattimeL)
-        totgpuproc.write(totgpufile)
+        if len(gpuprocsattimeL) > 0:
+            totgpuproc = total_gpu_process(gpuprocsattimeL)
+            totgpuproc.write(totgpufile)
 
         time.sleep(delay)
 
