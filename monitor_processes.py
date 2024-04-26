@@ -105,7 +105,7 @@ class CpuProcess(Process):
 
         Raises:
         """
-        fout.write("{:<18} : {:<8.1f} : {:<9} {:<5} {:<13.6f} {:<13.6f} {:<13.6f} "
+        fout.write("{:<19} : {:<8.1f} : {:<9} {:<5} {:<13.6f} {:<13.6f} {:<13.6f} "
                    "{:<6.2f} {:<6.2f} {}\n".format(self.localtime, self.timesecs,
                                         self.pid, self.user, self.virt, self.res,
                                         self.shr, self.percentcpu, self.percentmem,
@@ -125,9 +125,33 @@ class GpuProcess(Process):
 
         Raises:
         """
+        if sm == '-':
+            sm = 0
+        if mem == '-':
+            mem = 0
+        super().__init__(pid=pid, percentcpu=float(sm), percentmem=float(mem),
+                         localtime=localtime, timesecs=timesecs, command=command)
+        self.gpu = gpu      # gpu index
 
 
-def total_process(procL : list) -> Process :
+    def write(self, fout) -> None :
+        """Write out data to a file
+
+        Args:
+            fout : (file) open file to write to
+
+        Returns:
+            Nothing
+
+        Raises:
+        """
+        fout.write("{:<19} : {:<8.1f} : {:<9} {:<6.2f} {:<6.2f} "
+                   "{}\n".format(self.localtime, self.timesecs, self.pid,
+                                 self.percentcpu, self.percentmem, self.command))
+        fout.flush()
+
+
+def total_cpu_process(procL : list) -> CpuProcess :
     """Take list of Process's, sum up their values and returns a 'total' Process
 
     Args:
@@ -161,6 +185,33 @@ def total_process(procL : list) -> Process :
     return totproc
 
 
+def total_gpu_process(procL : list) -> Process :
+    """Take list of GpuProcess's, sum up their values and returns a 'total' Process
+
+    Args:
+        procL : (list) of Process's
+
+    Returns:
+        Process
+
+    Raises:
+    """
+    percentcpu = 0
+    percentmem = 0
+    localtime = procL[0].localtime
+    timesecs  = procL[0].timesecs
+    for proc in procL:
+        if proc.localtime != localtime or proc.timesecs != timesecs :
+            raise ValueError("ERROR!! procL aren't all from the same localtime "
+                             "or have the same timesecs")
+        percentcpu += proc.percentcpu
+        percentmem += proc.percentmem
+    totproc = GpuProcess(pid = -1, gpu = -1, sm = percentcpu, mem = percentmem,
+                         localtime = proc.localtime, timesecs = proc.timesecs,
+                         command = "TOTALPROC")
+    return totproc
+
+
 def main():
     """Monitor user processes by using Python
 
@@ -183,19 +234,33 @@ def main():
     start = time.time()
     startlocal = time.localtime()
     cpuprocL = []
+    gpuprocL = []
     print("{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(startlocal.tm_year,
           startlocal.tm_mon, startlocal.tm_mday, startlocal.tm_hour,
           startlocal.tm_min, startlocal.tm_sec))
-    totfile = open("{}-total.txt".format(args.outstem), "w+")
-    totfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
-                  "{}\n".format("Date", "time", "pid", "user", "virt", "res", "shr",
-                              "%cpu", "%mem", "command"))
-    allfile = open("{}-all.txt".format(args.outstem), "w+")
-    allfile.write("{:<18} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
-                  "{}\n".format("Date", "time", "pid", "user", "virt", "res", "shr",
-                              "%cpu", "%mem", "command"))
+    totcpufile = open("{}-total_cpu.txt".format(args.outstem), "w+")
+    totcpufile.write("{:<19} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
+                  "{}\n".format("Date", "time", "pid", "user", "virt_GiB", "res_GiB",
+                                "shr_GiB", "%cpu", "%mem", "command"))
+    allcpufile = open("{}-all_cpu.txt".format(args.outstem), "w+")
+    allcpufile.write("{:<19} : {:<8} : {:<9} {:<5} {:<13} {:<13} {:<13} {:<6} {:<6}"
+                  "{}\n".format("Date", "time", "pid", "user", "virt_GiB",
+                                "res_GiB", "shr_GiB", "%cpu", "%mem", "command"))
+
+    totgpufile = open("{}-total_gpu.txt".format(args.outstem), "w+")
+    totgpufile.write("{:<19} : {:<8} : {:<9} {:<6} {:<6} "
+                  "{}\n".format("Date", "time", "pid", "%cpu", "%mem", "command"))
+    allgpufile = open("{}-all_gpu.txt".format(args.outstem), "w+")
+    allgpufile.write("{:<19} : {:<8} : {:<9} {:<6} {:<6} "
+                  "{}\n".format("Date", "time", "pid", "user", "%cpu", "%mem", "command"))
 
     while True:
+        # Get time
+        localtime = time.localtime()
+        localtime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(localtime.tm_year,
+                    localtime.tm_mon, localtime.tm_mday, localtime.tm_hour,
+                    localtime.tm_min, localtime.tm_sec)
+        ###### CPU ######
         # Should be careful of string injection
         # https://stackoverflow.com/a/28756533/4021436
         string="top -b -u {} -n 1 | grep {}".format(user,user)
@@ -203,28 +268,47 @@ def main():
         print(top)
         topL = top.split('\n')
         cpuprocsattimeL = []       # procs ONLY at this current time
-        # Get time
-        localtime = time.localtime()
-        localtime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(localtime.tm_year,
-                    localtime.tm_mon, localtime.tm_mday, localtime.tm_hour,
-                    localtime.tm_min, localtime.tm_sec)
         timesecs = time.time() - start
         for line in topL:
             line = line.split()
             cpuproc = CpuProcess(pid=int(line[0]), user=line[1], virt=line[4],
-                              res=line[5], shr=line[6], state=line[7],
-                              percentcpu=float(line[8]), percentmem=float(line[9]),
-                              localtime=localtime, timesecs=timesecs,
-                              command = line[-1])
-            cpuproc.write(allfile)
+                                 res=line[5], shr=line[6], state=line[7],
+                                 percentcpu=float(line[8]), percentmem=float(line[9]),
+                                 localtime=localtime, timesecs=timesecs,
+                                 command = line[-1])
+            cpuproc.write(allcpufile)
             cpuprocL.append(cpuproc)
             cpuprocsattimeL.append(cpuproc)
-        totalcpuproc = total_process(cpuprocsattimeL)
-        totalcpuproc.write(totfile)
+        totcpuproc = total_cpu_process(cpuprocsattimeL)
+        totcpuproc.write(totcpufile)
 
         # Assume monitor_process is last process standing
         if len(cpuprocsattimeL) == 1:
             break
+
+        ###### GPU ######
+        string="nvidia-smi pmon -c 1"
+        nvsmi = subprocess.getoutput(string)
+        print(nvsmi)
+        nvsmiL = nvsmi.split('\n')
+        gpuprocsattimeL = []       # procs ONLY at this current time
+        timesecs = time.time() - start
+        for line in nvsmiL:
+            # Skip headers
+            if line[0] == "#":
+                continue
+            line = line.split()
+            # empty gpu
+            if line[-1] == '-':
+                continue
+            gpuproc = GpuProcess(gpu=int(line[0]), pid=int(line[1]), sm=line[3],
+                              mem=line[4], localtime=localtime,
+                              timesecs=timesecs, command = line[-1])
+            gpuproc.write(allgpufile)
+            gpuprocL.append(gpuproc)
+            gpuprocsattimeL.append(gpuproc)
+        totgpuproc = total_gpu_process(gpuprocsattimeL)
+        totgpuproc.write(totgpufile)
 
         time.sleep(delay)
 
