@@ -6,7 +6,7 @@
 #   Only works on linux
 #
 # To Do :
-#   When I'm clever, I'll use inheritance with Process and CpuProcess / GpuProcess
+#
 #
 #
 """This code does stuff
@@ -152,6 +152,47 @@ class GpuProcess(Process):
         fout.flush()
 
 
+class Free:
+    """Class to hold output from `free -m`"""
+    def __init__(self, total : int, used : int, free : int, shared : int,
+                 buff : int, avail : int, localtime : str, timesecs : int):
+        """Monitor output from `free -m`
+
+        Args:
+
+        Returns:
+
+        Raises:
+        """
+        # Convert to GiB
+        self.total  = total  / 1024
+        self.used   = used   / 1024
+        self.free   = free   / 1024
+        self.shared = shared / 1024
+        self.buff   = buff   / 1024
+        self.avail  = avail  / 1024
+        self.localtime = localtime
+        self.timesecs = timesecs
+
+
+    def write(self, fout) -> None :
+        """Write out data to a file
+
+        Args:
+            fout : (file) open file to write to
+
+        Returns:
+            Nothing
+
+        Raises:
+        """
+        fout.write("{:<19} : {:<8.1f} : {:<8.3f} {:<8.3f} {:<8.3f} {:<8.3f} "
+                   "{:<8.3f} {:<8.3f}\n".format(self.localtime, self.timesecs,
+                                                self.total, self.used, self.free,
+                                                self.shared, self.buff, self.avail))
+        fout.flush()
+
+
 def total_cpu_process(procL : list) -> CpuProcess :
     """Take list of Process's, sum up their values and returns a 'total' Process
 
@@ -263,9 +304,14 @@ def main():
                   "{}\n".format("Date", "time", "pid", "%cpu", "%mem", "command"))
     allgpufile = open("{}-all_gpu.txt".format(args.outstem), "w+")
     allgpufile.write("{:<19} : {:<8} : {:<9} {:<6} {:<6} "
-                  "{}\n".format("Date", "time", "pid", "user", "%cpu", "%mem", "command"))
+                  "{}\n".format("Date", "time", "pid", "user", "%cpu", "%mem",
+                                "command"))
+    freefile= open("{}-free.txt".format(args.outstem), "w+")
+    freefile.write("{:<19} : {:<8} : {:<8} {:<8} {:<8} {:<8} "
+                   "{:<8} {:<8}\n".format("Date", "time", "total", "used",
+                                                "free", "shared", "buff", "avail"))
 
-    while True:
+    while True :
         # Get time
         localtime = time.localtime()
         localtime = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(localtime.tm_year,
@@ -294,9 +340,34 @@ def main():
         totcpuproc = total_cpu_process(cpuprocsattimeL)
         totcpuproc.write(totcpufile)
 
-        # Assume monitor_process is last process standing
-        if len(cpuprocsattimeL) == 1:
-            break
+
+        ###### Free ######
+        # Should be careful of string injection
+        # https://stackoverflow.com/a/28756533/4021436
+        string="free -m"
+        free = subprocess.getoutput(string)
+        if verbose == True:
+            print(free)
+        freeL = free.split('\n')
+        timesecs = time.time() - start
+        # Should only be 3 lines
+        if len(freeL) != 3:
+            raise ValueError("ERROR!!! len(freeL) = {}, should "
+                             "be = 3".format(len(freeL)))
+        for i in range(len(freeL)):
+            line = freeL[i].split()
+            if i == 0:
+                if(line[0] != 'total'  or line[1] != 'used' or line[2] != 'free' or
+                   line[3] != 'shared' or line[4] != 'buff/cache' or
+                   line[5] != 'available'):
+                    raise ValueError("ERROR!! Unexpected header : {}".format(line))
+            elif i == 1:
+                freep = Free(total=int(line[1]), used=int(line[2]), free=int(line[3]),
+                             shared=int(line[4]), buff=int(line[5]),
+                             avail=int(line[6]), localtime=localtime,
+                             timesecs=timesecs)
+                freep.write(freefile)
+
 
         ###### GPU ######
         string="nvidia-smi pmon -c 1"
@@ -323,6 +394,11 @@ def main():
         if len(gpuprocsattimeL) > 0:
             totgpuproc = total_gpu_process(gpuprocsattimeL)
             totgpuproc.write(totgpufile)
+
+        # Assume monitor_process is last process standing
+        if len(cpuprocsattimeL) == 1:
+            break
+
 
         time.sleep(delay)
 
